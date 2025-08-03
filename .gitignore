@@ -1,0 +1,15 @@
+# PyInstaller output
+build/
+dist/
+*.spec
+
+# Ficheiros do sistema
+__pycache__/
+*.pyc
+
+# Executáveis e ícones comerciais
+*.exe
+*.dmg
+*.app
+*.icns
+GP_icon.*
