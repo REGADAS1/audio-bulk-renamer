@@ -1,16 +1,16 @@
 from PySide6.QtWidgets import (
     QMainWindow, QWidget, QVBoxLayout, QHBoxLayout, QTableWidget,
     QTableWidgetItem, QGroupBox, QGridLayout, QLabel, QLineEdit,
-    QPushButton, QMessageBox, QHeaderView, QFormLayout
+    QPushButton, QMessageBox, QHeaderView, QFormLayout, QFileSystemModel,
+    QTreeView, QSplitter
 )
 from PySide6.QtGui import QIcon
-from PySide6.QtCore import Qt
+from PySide6.QtCore import Qt, QModelIndex
 from pathlib import Path
 from mutagen.easyid3 import EasyID3
 from mutagen.id3 import ID3, ID3NoHeaderError, TSRC
 import renamer
 from metadata import get_file_metadata
-
 
 def format_duration(seconds_str):
     try:
@@ -22,18 +22,40 @@ def format_duration(seconds_str):
     millis = int((seconds - int(seconds)) * 1000)
     return f"{minutes:02}:{secs:02}:{millis:03}"
 
-
 class MainWindow(QMainWindow):
     def __init__(self):
         super().__init__()
         self.setWindowTitle("Namae – GP Mastering")
         self.setWindowIcon(QIcon("GP_icon.ico"))
-        self.resize(900, 600)
+        self.resize(1200, 700)
         self.setAcceptDrops(True)
+
+        self.files = []
+        self.selected_file = None
 
         central_widget = QWidget(self)
         self.setCentralWidget(central_widget)
         main_layout = QVBoxLayout(central_widget)
+
+        splitter = QSplitter(Qt.Horizontal)
+
+        self.model = QFileSystemModel()
+        self.model.setRootPath(str(Path.home()))
+        self.model.setNameFilters(["*.wav", "*.mp3", "*.aiff"])
+        self.model.setNameFilterDisables(False)
+
+        self.file_explorer = QTreeView()
+        self.file_explorer.setModel(self.model)
+        self.file_explorer.setRootIndex(self.model.index(str(Path.home())))
+        self.file_explorer.doubleClicked.connect(self.on_file_double_clicked)
+        self.file_explorer.setHeaderHidden(False)
+        self.file_explorer.setColumnHidden(1, True)
+        self.file_explorer.setColumnHidden(2, True)
+        self.file_explorer.setColumnHidden(3, True)
+        self.file_explorer.header().setStretchLastSection(False)
+        self.file_explorer.header().setSectionResizeMode(0, QHeaderView.Stretch)
+
+        splitter.addWidget(self.file_explorer)
 
         self.table = QTableWidget(0, 9)
         self.table.setHorizontalHeaderLabels([
@@ -42,19 +64,22 @@ class MainWindow(QMainWindow):
             "Bitrate", "Length", "Channels"
         ])
         self.table.setEditTriggers(QTableWidget.NoEditTriggers)
+        self.table.setSelectionBehavior(QTableWidget.SelectRows)
+        self.table.setSelectionMode(QTableWidget.ExtendedSelection)
         self.table.setColumnWidth(0, 30)
         self.table.horizontalHeader().setSectionResizeMode(0, QHeaderView.Fixed)
         self.table.horizontalHeader().setSectionResizeMode(1, QHeaderView.ResizeToContents)
         self.table.horizontalHeader().setSectionResizeMode(2, QHeaderView.Stretch)
         for i in range(3, 9):
             self.table.horizontalHeader().setSectionResizeMode(i, QHeaderView.ResizeToContents)
-        main_layout.addWidget(self.table)
 
-        # Layout de opções e contacto
+        splitter.addWidget(self.table)
+        splitter.setSizes([180, 1020])
+        main_layout.addWidget(splitter, stretch=10)
+
+        footer_layout = QVBoxLayout()
         options_container = QHBoxLayout()
-        main_layout.addLayout(options_container)
 
-        # Opções de renomeação
         options_group = QGroupBox("Rename Files")
         options_layout = QGridLayout()
         options_group.setLayout(options_layout)
@@ -75,7 +100,6 @@ class MainWindow(QMainWindow):
 
         options_container.addWidget(options_group, stretch=3)
 
-        # Contacto
         contact_group = QGroupBox("Contact info")
         contact_layout = QFormLayout()
         contact_group.setLayout(contact_layout)
@@ -94,15 +118,17 @@ class MainWindow(QMainWindow):
         contact_layout.addRow("Instagram:", insta_label)
 
         options_container.addWidget(contact_group, stretch=2)
+        footer_layout.addLayout(options_container)
 
-        # Botões
         btn_layout = QHBoxLayout()
         self.rename_btn = QPushButton("Rename Files")
         self.tag_btn = QPushButton("Edit Metadata")
         self.tag_btn.setEnabled(False)
         btn_layout.addWidget(self.rename_btn)
         btn_layout.addWidget(self.tag_btn)
-        main_layout.addLayout(btn_layout)
+
+        footer_layout.addLayout(btn_layout)
+        main_layout.addLayout(footer_layout, stretch=0)
 
         self.rename_btn.clicked.connect(self.perform_rename)
         self.tag_btn.clicked.connect(self.open_tag_editor)
@@ -110,11 +136,14 @@ class MainWindow(QMainWindow):
         for edit in (self.prefix_edit, self.suffix_edit, self.find_edit, self.replace_edit):
             edit.textChanged.connect(self.update_preview_names)
 
-        self.files = []
-        self.selected_file = None
         self.table.itemSelectionChanged.connect(self.on_selection_changed)
         self.table.cellClicked.connect(self.remove_file_click)
         self.table.cellDoubleClicked.connect(self.on_cell_double_clicked)
+
+    def on_file_double_clicked(self, index: QModelIndex):
+        file_path = self.model.filePath(index)
+        if Path(file_path).is_file():
+            self.add_files([file_path])
 
     def dragEnterEvent(self, event):
         if event.mimeData().hasUrls():
@@ -144,7 +173,7 @@ class MainWindow(QMainWindow):
             file_item.setFlags(Qt.ItemIsSelectable | Qt.ItemIsEnabled)
             self.table.setItem(row, 1, file_item)
 
-            self.table.setItem(row, 2, QTableWidgetItem(""))  # pré-visualização
+            self.table.setItem(row, 2, QTableWidgetItem(""))
 
             self.table.setItem(row, 3, QTableWidgetItem(info.get("format", "")))
             self.table.setItem(row, 4, QTableWidgetItem(str(info.get("samplerate", ""))))
@@ -160,21 +189,32 @@ class MainWindow(QMainWindow):
         suffix = self.suffix_edit.text()
         find_text = self.find_edit.text()
         replace_text = self.replace_edit.text()
+        selected_rows = set(index.row() for index in self.table.selectionModel().selectedRows())
+
         for idx, file_path in enumerate(self.files):
-            new_name = renamer.generate_new_name(file_path, prefix, suffix, find_text, replace_text)
-            self.table.setItem(idx, 2, QTableWidgetItem(new_name))
+            if idx in selected_rows:
+                new_name = renamer.generate_new_name(file_path, prefix, suffix, find_text, replace_text)
+                self.table.setItem(idx, 2, QTableWidgetItem(new_name))
+            else:
+                self.table.setItem(idx, 2, QTableWidgetItem(""))
 
     def perform_rename(self):
         prefix = self.prefix_edit.text()
         suffix = self.suffix_edit.text()
         find_text = self.find_edit.text()
         replace_text = self.replace_edit.text()
-        result = renamer.rename_files(self.files, prefix, suffix, find_text, replace_text)
+
+        selected_rows = [index.row() for index in self.table.selectionModel().selectedRows()]
+        selected_files = [self.files[i] for i in selected_rows]
+
+        result = renamer.rename_files(selected_files, prefix, suffix, find_text, replace_text)
         renamed_count = len(result)
+
         if renamed_count == 0:
             QMessageBox.information(self, "Renaming", "No files were renamed.")
         else:
-            for i, old_path in enumerate(list(self.files)):
+            for i in selected_rows:
+                old_path = self.files[i]
                 new_path = old_path
                 for r in result:
                     if Path(r).name == Path(old_path).name:
@@ -196,10 +236,15 @@ class MainWindow(QMainWindow):
             )
 
     def open_tag_editor(self):
-        from tag_editor import TagEditorDialog
         if self.selected_file:
-            dialog = TagEditorDialog(self.selected_file, self)
-            dialog.exec()
+            if self.selected_file.lower().endswith(".mp3"):
+                from tag_editor import TagEditorDialog
+                dialog = TagEditorDialog(self.selected_file, self)
+                dialog.exec()
+            elif self.selected_file.lower().endswith(".wav"):
+                from tag_editor_wav import TagEditorWavDialog
+                dialog = TagEditorWavDialog(self.selected_file, self)
+                dialog.exec()
 
     def remove_file_click(self, row, col):
         if col == 0:
