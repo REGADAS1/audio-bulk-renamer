@@ -4,32 +4,42 @@
 
 ---
 
-**Audio Bulk Renamer** is a cross-platform desktop application designed for **batch renaming audio files** with optional metadata inspection and editing. Built with `PySide6`, it's tailored for **sound engineers**, **musicians**, and **audio professionals** who need a fast and visually pleasing tool to organize and prepare files.
+**Audio Bulk Renamer** is a cross-platform desktop application designed for **batch renaming audio files** with full metadata inspection and editing capabilities. Built with `PySide6`, it is tailored for **sound engineers**, **musicians**, and **audio professionals** who require a fast, reliable, and visually refined tool to organize and prepare their audio assets.
 
 ---
 
 ## 🎯 Features
 
-- ✅ Drag-and-drop interface for `.wav` and `.mp3` files
-- ✅ Add prefix / suffix / replace text in filenames
-- ✅ Audio info preview:
-    - Format, Sample Rate, Bit Depth
-    - Bitrate (for MP3), Duration, Channels
-- ✅ Edit **ID3 tags** in `.mp3` files (title, artist, album, genre, year, ISRC, etc.)
-- ✅ Edit **BWF metadata** in `.wav` files via `bwfmetaedit`
-- ✅ Audio analysis powered by `ffprobe` (optional dependency)
-
+- ✅ **Drag-and-drop interface** for `.wav` and `.mp3` files (supports dropping anywhere on the table area)
+- ✅ **Flexible file selection**:
+  - Click, Shift+Click, or Ctrl+Click to select multiple files  
+  - Drag over empty table space to create a selection rectangle
+- ✅ **Batch filename editing**:
+  - Add prefix, suffix, or replace text
+  - Apply changes to multiple files at once
+- ✅ **Detailed audio metadata preview**:
+  - **General**: Format, Duration, Channels  
+  - **WAV-specific**: Sample Rate, Bit Depth (via `tinytag` / `ffprobe`)  
+  - **MP3-specific**: Bitrate, Sample Rate, ID3 tags  
+- ✅ **ID3 tag editing for `.mp3`**:
+  - Title, Artist, Album, Genre, Year, Track, ISRC (via `mutagen`)
+- ✅ **BWF metadata editing for `.wav`**:
+  - ISRC reading/writing via `BWFMetaEdit`  
+  - Audio analysis powered by `ffprobe` (via FFmpeg)
+- ✅ **Cross-platform support**:
+  - Windows (`.exe` with embedded `ffprobe` and `BWFMetaEdit`)
+  - macOS (`.app` bundle with native binaries and Homebrew-installed dependencies)
 
 ---
 
 ## 🖥️ Tech Stack
 
 - Python 3.x
-- [PySide6](https://doc.qt.io/qtforpython/)
-- [mutagen](https://mutagen.readthedocs.io/) (for ID3 tags)
-- [tinytag](https://github.com/devsnd/tinytag) (for audio analysis)
-- `ffprobe` (from FFmpeg, for detailed audio metadata)
-- `bwfmetaedit` (for BWF-compliant `.wav` metadata editing)
+- [PySide6](https://doc.qt.io/qtforpython/) – GUI framework
+- [mutagen](https://mutagen.readthedocs.io/) – ID3 tag editing
+- [tinytag](https://github.com/devsnd/tinytag) – Audio property reading
+- [`ffprobe`](https://ffmpeg.org/ffprobe.html) – Metadata extraction for WAV files
+- [`BWFMetaEdit`](https://mediaarea.net/BWFMetaEdit) – Broadcast Wave Format metadata editing
 
 ---
 
@@ -37,9 +47,9 @@
 
 To respect the commercial scope of the project and protect client interests, the following are **excluded**:
 
-- ❌ Any compiled executables (`.exe`, `.app`, `.dmg`)
-- ❌ Commercial icons, branding or graphics
-- ❌ Distribution-ready installers or assets
+- ❌ Any compiled executables (`.exe`, `.app`, `.dmg`, `.pkg`)
+- ❌ Commercial icons, branding, or proprietary UI assets
+- ❌ Distribution-ready installers or build scripts for deployment
 
 ---
 
@@ -50,8 +60,6 @@ This application was designed and built by **me** as part of a commissioned coll
 ---
 
 ## 🎧 Contact for Commercial Use
-
-This project was originally developed in collaboration with:
 
 **GP Mastering – Audio Mastering Services**  
 📍 Portugal  
@@ -78,13 +86,10 @@ _Add a few images or a GIF demo here if desired._
 
 ---
 
-## 🎨 Note: A custom-branded user interface was included in the final commercial release, which is not part of this public repository.
-
----
-
 ## 📌 Roadmap (optional)
 
 - [ ] Export metadata to CSV
 - [ ] Support for FLAC and AIFF files
-- [ ] Enhanced metadata batch editing capabilities
+- [ ] Batch ISRC editing for WAV and MP3
 - [ ] File renaming presets and configuration saving
+- [ ] Drag-and-drop reordering in the file table

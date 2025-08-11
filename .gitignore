@@ -13,3 +13,4 @@ __pycache__/
 *.app
 *.icns
 GP_icon.*
+*.txt

@@ -2,15 +2,17 @@ from PySide6.QtWidgets import (
     QMainWindow, QWidget, QVBoxLayout, QHBoxLayout, QTableWidget,
     QTableWidgetItem, QGroupBox, QGridLayout, QLabel, QLineEdit,
     QPushButton, QMessageBox, QHeaderView, QFormLayout, QFileSystemModel,
-    QTreeView, QSplitter
+    QTreeView, QSplitter, QRubberBand
 )
-from PySide6.QtGui import QIcon
-from PySide6.QtCore import Qt, QModelIndex
+from PySide6.QtGui import QIcon, QDrag
+from PySide6.QtCore import Qt, QModelIndex, QRect, QPoint, QSize, QMimeData, QUrl
 from pathlib import Path
 from mutagen.easyid3 import EasyID3
 from mutagen.id3 import ID3, ID3NoHeaderError, TSRC
 import renamer
 from metadata import get_file_metadata
+from PySide6.QtWidgets import QTableWidget, QRubberBand
+from PySide6.QtCore import Qt, QRect, QPoint, QSize, QItemSelection, QItemSelectionModel
 
 def format_duration(seconds_str):
     try:
@@ -22,16 +24,103 @@ def format_duration(seconds_str):
     millis = int((seconds - int(seconds)) * 1000)
     return f"{minutes:02}:{secs:02}:{millis:03}"
 
+
+class FileTreeView(QTreeView):
+    def __init__(self, parent=None):
+        super().__init__(parent)
+        self.setDragEnabled(True)
+        self.setSelectionMode(QTreeView.ExtendedSelection)
+
+    def startDrag(self, supportedActions):
+        indexes = self.selectedIndexes()
+        if not indexes:
+            return
+        paths = list(set(self.model().filePath(index) for index in indexes if index.column() == 0))
+        urls = [QUrl.fromLocalFile(p) for p in paths if Path(p).is_file()]
+        if urls:
+            mimeData = QMimeData()
+            mimeData.setUrls(urls)
+            drag = QDrag(self)
+            drag.setMimeData(mimeData)
+            drag.exec(Qt.CopyAction)
+
+
+class DropTableWidget(QTableWidget):
+    def __init__(self, parent=None):
+        super().__init__(parent)
+        self.setAcceptDrops(True)
+        self.setDragDropMode(QTableWidget.DropOnly)
+        self.setDefaultDropAction(Qt.CopyAction)
+
+        # For marquee selection
+        self.rubber_band = QRubberBand(QRubberBand.Rectangle, self)
+        self.origin = QPoint()
+
+    # --- File drop handling ---
+    def dragEnterEvent(self, event):
+        if event.mimeData().hasUrls():
+            event.acceptProposedAction()
+
+    def dragMoveEvent(self, event):
+        if event.mimeData().hasUrls():
+            event.acceptProposedAction()
+
+    def dropEvent(self, event):
+        if event.mimeData().hasUrls():
+            file_paths = [url.toLocalFile() for url in event.mimeData().urls()]
+            file_paths = [f for f in file_paths if f.lower().endswith(('.wav', '.mp3', '.aiff'))]
+            if file_paths:
+                self.window().add_files(file_paths)
+                event.acceptProposedAction()
+            else:
+                event.ignore()
+
+    # --- Marquee selection handling ---
+    def mousePressEvent(self, event):
+        if event.button() == Qt.LeftButton and not self.itemAt(event.pos()):
+            self.origin = event.pos()
+            self.rubber_band.setGeometry(QRect(self.origin, QSize()))
+            self.rubber_band.show()
+            self.clearSelection()
+        else:
+            super().mousePressEvent(event)
+
+    def mouseMoveEvent(self, event):
+        if self.rubber_band.isVisible():
+            self.rubber_band.setGeometry(QRect(self.origin, event.pos()).normalized())
+        else:
+            super().mouseMoveEvent(event)
+
+    def mouseReleaseEvent(self, event):
+        if self.rubber_band.isVisible():
+            self.rubber_band.hide()
+            rect = self.rubber_band.geometry()
+
+            selection = QItemSelection()
+            for row in range(self.rowCount()):
+                if self.item(row, 0) and rect.intersects(self.visualItemRect(self.item(row, 0))):
+                    first_index = self.model().index(row, 0)
+                    last_index = self.model().index(row, self.columnCount() - 1)
+                    selection.merge(QItemSelection(first_index, last_index), QItemSelectionModel.Select)
+
+            self.selectionModel().select(selection, QItemSelectionModel.Select | QItemSelectionModel.Rows)
+        else:
+            super().mouseReleaseEvent(event)
+
+
+
 class MainWindow(QMainWindow):
     def __init__(self):
         super().__init__()
         self.setWindowTitle("Namae – GP Mastering")
         self.setWindowIcon(QIcon("GP_icon.ico"))
         self.resize(1200, 700)
-        self.setAcceptDrops(True)
+        self.setAcceptDrops(False)  # Important: disable drops on MainWindow
 
         self.files = []
         self.selected_file = None
+        self.rubber_band = QRubberBand(QRubberBand.Rectangle, self)
+        self.origin = QPoint()
 
         central_widget = QWidget(self)
         self.setCentralWidget(central_widget)
@@ -44,33 +133,34 @@ class MainWindow(QMainWindow):
         self.model.setNameFilters(["*.wav", "*.mp3", "*.aiff"])
         self.model.setNameFilterDisables(False)
 
-        self.file_explorer = QTreeView()
+        self.file_explorer = FileTreeView()
         self.file_explorer.setModel(self.model)
         self.file_explorer.setRootIndex(self.model.index(str(Path.home())))
-        self.file_explorer.doubleClicked.connect(self.on_file_double_clicked)
+        self.file_explorer.doubleClicked.connect(self.on_file_explorer_double_clicked)
         self.file_explorer.setHeaderHidden(False)
         self.file_explorer.setColumnHidden(1, True)
         self.file_explorer.setColumnHidden(2, True)
         self.file_explorer.setColumnHidden(3, True)
         self.file_explorer.header().setStretchLastSection(False)
         self.file_explorer.header().setSectionResizeMode(0, QHeaderView.Stretch)
+        self.file_explorer.setAnimated(False)
+        self.file_explorer.setSortingEnabled(True)
 
         splitter.addWidget(self.file_explorer)
 
-        self.table = QTableWidget(0, 9)
+        self.table = DropTableWidget(self)
+        self.table.setColumnCount(8)
         self.table.setHorizontalHeaderLabels([
-            "", "File", "New File Name Preview",
+            "File", "New File Name Preview",
             "File Type", "Sample Rate", "Bit Depth",
             "Bitrate", "Length", "Channels"
         ])
         self.table.setEditTriggers(QTableWidget.NoEditTriggers)
         self.table.setSelectionBehavior(QTableWidget.SelectRows)
         self.table.setSelectionMode(QTableWidget.ExtendedSelection)
-        self.table.setColumnWidth(0, 30)
-        self.table.horizontalHeader().setSectionResizeMode(0, QHeaderView.Fixed)
-        self.table.horizontalHeader().setSectionResizeMode(1, QHeaderView.ResizeToContents)
-        self.table.horizontalHeader().setSectionResizeMode(2, QHeaderView.Stretch)
-        for i in range(3, 9):
+        self.table.horizontalHeader().setSectionResizeMode(0, QHeaderView.ResizeToContents)
+        self.table.horizontalHeader().setSectionResizeMode(1, QHeaderView.Stretch)
+        for i in range(2, 8):
             self.table.horizontalHeader().setSectionResizeMode(i, QHeaderView.ResizeToContents)
 
         splitter.addWidget(self.table)
@@ -137,22 +227,31 @@ class MainWindow(QMainWindow):
             edit.textChanged.connect(self.update_preview_names)
 
         self.table.itemSelectionChanged.connect(self.on_selection_changed)
-        self.table.cellClicked.connect(self.remove_file_click)
         self.table.cellDoubleClicked.connect(self.on_cell_double_clicked)
 
-    def on_file_double_clicked(self, index: QModelIndex):
+    def mousePressEvent(self, event):
+        if event.button() == Qt.LeftButton:
+            self.origin = event.pos()
+            self.rubber_band.setGeometry(QRect(self.origin, QSize()))
+            self.rubber_band.show()
+
+    def mouseMoveEvent(self, event):
+        if self.rubber_band.isVisible():
+            self.rubber_band.setGeometry(QRect(self.origin, event.pos()).normalized())
+
+    def mouseReleaseEvent(self, event):
+        if self.rubber_band.isVisible():
+            self.rubber_band.hide()
+            rect = self.rubber_band.geometry()
+            for row in range(self.table.rowCount()):
+                row_rect = self.table.visualItemRect(self.table.item(row, 0))
+                if rect.intersects(row_rect):
+                    self.table.selectRow(row)
+
+    def on_file_explorer_double_clicked(self, index: QModelIndex):
         file_path = self.model.filePath(index)
         if Path(file_path).is_file():
             self.add_files([file_path])
-
-    def dragEnterEvent(self, event):
-        if event.mimeData().hasUrls():
-            event.acceptProposedAction()
-
-    def dropEvent(self, event):
-        if event.mimeData().hasUrls():
-            file_paths = [url.toLocalFile() for url in event.mimeData().urls()]
-            self.add_files(file_paths)
 
     def add_files(self, file_paths):
         for file_path in file_paths:
@@ -164,23 +263,17 @@ class MainWindow(QMainWindow):
 
             info = get_file_metadata(file_path)
 
-            remove_item = QTableWidgetItem("❌")
-            remove_item.setTextAlignment(Qt.AlignCenter)
-            remove_item.setFlags(Qt.ItemIsEnabled)
-            self.table.setItem(row, 0, remove_item)
-
             file_item = QTableWidgetItem(Path(file_path).name)
             file_item.setFlags(Qt.ItemIsSelectable | Qt.ItemIsEnabled)
-            self.table.setItem(row, 1, file_item)
+            self.table.setItem(row, 0, file_item)
 
-            self.table.setItem(row, 2, QTableWidgetItem(""))
-
-            self.table.setItem(row, 3, QTableWidgetItem(info.get("format", "")))
-            self.table.setItem(row, 4, QTableWidgetItem(str(info.get("samplerate", ""))))
-            self.table.setItem(row, 5, QTableWidgetItem(str(info.get("bitdepth", ""))))
-            self.table.setItem(row, 6, QTableWidgetItem(str(info.get("bitrate", ""))))
-            self.table.setItem(row, 7, QTableWidgetItem(info.get("duration", "")))
-            self.table.setItem(row, 8, QTableWidgetItem(str(info.get("channels", ""))))
+            self.table.setItem(row, 1, QTableWidgetItem(""))
+            self.table.setItem(row, 2, QTableWidgetItem(info.get("format", "")))
+            self.table.setItem(row, 3, QTableWidgetItem(str(info.get("samplerate", ""))))
+            self.table.setItem(row, 4, QTableWidgetItem(str(info.get("bitdepth", ""))))
+            self.table.setItem(row, 5, QTableWidgetItem(str(info.get("bitrate", ""))))
+            self.table.setItem(row, 6, QTableWidgetItem(info.get("duration", "")))
+            self.table.setItem(row, 7, QTableWidgetItem(str(info.get("channels", ""))))
 
         self.update_preview_names()
 
@@ -194,9 +287,9 @@ class MainWindow(QMainWindow):
         for idx, file_path in enumerate(self.files):
             if idx in selected_rows:
                 new_name = renamer.generate_new_name(file_path, prefix, suffix, find_text, replace_text)
-                self.table.setItem(idx, 2, QTableWidgetItem(new_name))
+                self.table.setItem(idx, 1, QTableWidgetItem(new_name))
             else:
-                self.table.setItem(idx, 2, QTableWidgetItem(""))
+                self.table.setItem(idx, 1, QTableWidgetItem(""))
 
     def perform_rename(self):
         prefix = self.prefix_edit.text()
@@ -221,7 +314,7 @@ class MainWindow(QMainWindow):
                         new_path = r
                         break
                 self.files[i] = new_path
-                self.table.setItem(i, 1, QTableWidgetItem(Path(new_path).name))
+                self.table.setItem(i, 0, QTableWidgetItem(Path(new_path).name))
             QMessageBox.information(self, "Renaming", f"{renamed_count} file(s) renamed.")
 
     def on_selection_changed(self):
@@ -246,12 +339,19 @@ class MainWindow(QMainWindow):
                 dialog = TagEditorWavDialog(self.selected_file, self)
                 dialog.exec()
 
-    def remove_file_click(self, row, col):
-        if col == 0:
-            self.files.pop(row)
-            self.table.removeRow(row)
-
     def on_cell_double_clicked(self, row, col):
         if 0 <= row < len(self.files):
             self.selected_file = self.files[row]
             self.open_tag_editor()
+
+    def keyPressEvent(self, event):
+        if event.key() == Qt.Key_Delete:
+            selected_rows = sorted(set(index.row() for index in self.table.selectedIndexes()), reverse=True)
+            for row in selected_rows:
+                if 0 <= row < len(self.files):
+                    self.files.pop(row)
+                    self.table.removeRow(row)
+            event.accept()
+        else:
+            super().keyPressEvent(event)
+
