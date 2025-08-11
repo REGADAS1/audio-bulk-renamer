@@ -96,10 +96,3 @@ This source code is provided under the MIT License, limited to this repository v
 
 ---
 
-## 📌 Roadmap (optional)
-
-- [ ] Export metadata to CSV
-- [ ] Support for FLAC and AIFF files
-- [ ] Batch ISRC editing for WAV and MP3
-- [ ] File renaming presets and configuration saving
-- [ ] Drag-and-drop reordering in the file table
