@@ -85,14 +85,14 @@ This source code is provided under the MIT License, limited to this repository v
 ### 📂 Main Window
 ![Main Window](assets/main_window_V1.png)
 
+### 🖊️ Main Window Editing
+![Main Window Editing](assets/main_window_editing.png)
+
 ### ✏️ MP3 Edit Metadata
 ![MP3 Edit Metadata](assets/edit_metadata.png)
 
 ### 🎙️ WAV Edit Metadata
 ![WAV Edit Metadata](assets/edit_metadata_wav.png)
-
-### 🖊️ Main Window Editing
-![Main Window Editing](assets/main_window_editing.png)
 
 ---
 
